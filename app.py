@@ -69,8 +69,14 @@ with st.expander("Photo tips", expanded=True):
 if "scans" not in st.session_state:
     st.session_state.scans = 0
 
-top = st.file_uploader("1. Top of shell (required)", type=["jpg", "jpeg", "png", "webp"], key="top")
-under = st.file_uploader("2. Underside (recommended)", type=["jpg", "jpeg", "png", "webp"], key="under")
+def photo_input(label, key):
+    mode = st.radio(label, ["Upload a photo", "Use camera"], horizontal=True, key=key + "_mode")
+    if mode == "Use camera":
+        return st.camera_input("Take a photo", key=key + "_cam")
+    return st.file_uploader("Choose a photo", type=["jpg", "jpeg", "png", "webp"], key=key + "_up")
+
+top = photo_input("1. Top of shell (required)", "top")
+under = photo_input("2. Underside (recommended)", "under")
 
 if top and st.button("Check shell", type="primary"):
     if st.session_state.scans >= MAX_SCANS:
