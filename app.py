@@ -3,7 +3,7 @@ import streamlit as st
 import anthropic
 from PIL import Image, ImageOps
 
-st.set_page_config(page_title="Turtle Shell Check", page_icon="🐢")
+st.set_page_config(page_title="Turtle Shell Check", page_icon="🐢", layout="wide")
 
 MODEL = "claude-sonnet-5-5"
 MAX_SCANS = 10  # per visitor session; protects your API budget
@@ -34,8 +34,13 @@ def get_client():
     return anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"].strip())
 
 
+def open_upright(file):
+    """Open an uploaded/camera file and fix phone rotation."""
+    return ImageOps.exif_transpose(Image.open(io.BytesIO(file.getvalue()))).convert("RGB")
+
+
 def to_b64(file):
-    img = ImageOps.exif_transpose(Image.open(file)).convert("RGB")  # fixes phone rotation
+    img = open_upright(file)
     img.thumbnail((1024, 1024))
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=90)  # re-saving also drops GPS/location data
@@ -56,10 +61,22 @@ def analyze(files):
     return json.loads(text.strip().replace("```json", "").replace("```", ""))
 
 
+def photo_input(label, key):
+    mode = st.radio(label, ["Upload a photo", "Use camera"], horizontal=True, key=key + "_mode")
+    if mode == "Use camera":
+        f = st.camera_input("Take a photo", key=key + "_cam")
+    else:
+        f = st.file_uploader("Choose a photo", type=["jpg", "jpeg", "png", "webp"], key=key + "_up")
+    if f:
+        st.image(open_upright(f), caption="This is the photo that will be checked",
+                 use_container_width=True)
+    return f
+
+
 st.title("🐢 Turtle Shell Check")
 st.caption("A screening aid, not a diagnosis. A suspected case needs an exotics vet.")
 
-with st.expander("Photo tips", expanded=True):
+with st.expander("Photo tips", expanded=False):
     st.write(
         "- Good light, no flash glare, shell dry if possible\n"
         "- Close enough to see the scutes, whole shell in frame\n"
@@ -69,14 +86,11 @@ with st.expander("Photo tips", expanded=True):
 if "scans" not in st.session_state:
     st.session_state.scans = 0
 
-def photo_input(label, key):
-    mode = st.radio(label, ["Upload a photo", "Use camera"], horizontal=True, key=key + "_mode")
-    if mode == "Use camera":
-        return st.camera_input("Take a photo", key=key + "_cam")
-    return st.file_uploader("Choose a photo", type=["jpg", "jpeg", "png", "webp"], key=key + "_up")
-
-top = photo_input("1. Top of shell (required)", "top")
-under = photo_input("2. Underside (recommended)", "under")
+col_top, col_under = st.columns(2)
+with col_top:
+    top = photo_input("1. Top of shell (required)", "top")
+with col_under:
+    under = photo_input("2. Underside (recommended)", "under")
 
 if top and st.button("Check shell", type="primary"):
     if st.session_state.scans >= MAX_SCANS:
@@ -93,22 +107,33 @@ if top and st.button("Check shell", type="primary"):
                 st.error("Something went wrong. Please try again.")
                 st.stop()
 
-        v = r["verdict"]
-        if v == "rot":
-            st.error("Possible shell rot. Please see an exotics vet.")
-        elif v == "uncertain":
-            st.warning("Not sure. See a vet, or retake the photos using the tips below.")
-        else:
-            st.success("No concerning signs seen in these photos. Keep monitoring.")
+        st.divider()
+        st.subheader("Result")
+        left, right = st.columns([1, 1])
 
-        st.write(f"**Photo quality:** {r['image_quality']}")
-        st.write(f"**What I see:** {r['visible_signs']}")
-        if r["not_visible"].strip().lower() != "none":
-            st.write(f"**A better photo would show:** {r['not_visible']}")
-        st.write(f"**Could also be:** {r['alternative_explanations']}")
-        if not under:
-            st.info("Adding an underside photo usually gives a more reliable result.")
-        st.caption("This tool can miss problems. When in doubt, see a vet.")
+        with left:
+            st.write("**Photos checked**")
+            st.image(open_upright(top), caption="Top of shell", use_container_width=True)
+            if under:
+                st.image(open_upright(under), caption="Underside", use_container_width=True)
+
+        with right:
+            v = r["verdict"]
+            if v == "rot":
+                st.error("Possible shell rot. Please see an exotics vet.")
+            elif v == "uncertain":
+                st.warning("Not sure. See a vet, or retake the photos using the tips above.")
+            else:
+                st.success("No concerning signs seen in these photos. Keep monitoring.")
+            st.write(f"**Photo quality:** {r['image_quality']}")
+            st.write(f"**What the AI sees:** {r['visible_signs']}")
+            if r["not_visible"].strip().lower() != "none":
+                st.write(f"**A better photo would show:** {r['not_visible']}")
+            st.write(f"**Could also be:** {r['alternative_explanations']}")
+            if not under:
+                st.info("Adding an underside photo usually gives a more reliable result.")
+            st.caption("Compare the AI's description with the photos on the left. "
+                       "This tool can miss problems. When in doubt, see a vet.")
 
 st.divider()
 st.caption("Photos are sent to an AI model for analysis and are not saved by this app.")
